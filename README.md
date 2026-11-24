@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="./assets/logo.svg" width="84" height="84" alt="AGY Token Analytics Logo" />
-  <h1>AGY Token Analytics</h1>
-  <p><strong>A 100% local, read-only Token Usage, Live Quota &amp; Turn-by-Turn Diagnostics MCP App plugin for Google Antigravity 2.0 Desktop.</strong></p>
+  <img src="./assets/logo.svg" width="84" height="84" alt="Antigravity Telemetry — AGY Token Analytics Logo" />
+  <h1>Antigravity Telemetry · AGY Token Analytics</h1>
+  <p><strong>Luminous, 100% local read-only Token Usage, Live Quota &amp; Turn-by-Turn Diagnostics MCP App plugin for Google Antigravity 2.0 Desktop.</strong></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
@@ -83,19 +83,19 @@ Pre-built bundles (`dist/server.cjs` and single-file `dist/ui/index.html`) are i
 ### Option 1: Antigravity CLI (Recommended)
 
 ```bash
-agy plugin install https://github.com/<your-username>/agy-token-analytics
+agy plugin install https://github.com/En-nagakiro/agy-token-analytics
 ```
 
 ### Option 2: Direct `git clone`
 
 **Windows (PowerShell 7):**
 ```powershell
-git clone https://github.com/<your-username>/agy-token-analytics.git "$HOME\.gemini\config\plugins\agy-token-analytics"
+git clone https://github.com/En-nagakiro/agy-token-analytics.git "$HOME\.gemini\config\plugins\agy-token-analytics"
 ```
 
 **macOS / Linux:**
 ```bash
-git clone https://github.com/<your-username>/agy-token-analytics.git "${HOME}/.gemini/config/plugins/agy-token-analytics"
+git clone https://github.com/En-nagakiro/agy-token-analytics.git "${HOME}/.gemini/config/plugins/agy-token-analytics"
 ```
 
 Antigravity 2.0 auto-discovers plugins under `~/.gemini/config/plugins/`. Open **Token 分析** directly from the left sidebar or from the `+` menu in the right auxiliary pane.
@@ -119,7 +119,7 @@ Or click **"一键让 AI 更新 / Let AI Update"** inside the settings drawer. T
 ## Development & Build from Source
 
 ```bash
-git clone https://github.com/<your-username>/agy-token-analytics.git
+git clone https://github.com/En-nagakiro/agy-token-analytics.git
 cd agy-token-analytics
 npm install
 ```

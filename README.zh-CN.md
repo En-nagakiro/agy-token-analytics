@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="./assets/logo.svg" width="84" height="84" alt="AGY Token 分析 Logo" />
-  <h1>AGY Token 分析（agy-token-analytics）</h1>
-  <p><strong>面向 Google Antigravity 2.0 桌面版的 100% 纯本地只读 Token 用量、实时模型池配额与轮次级诊断 MCP App 原生插件。</strong></p>
+  <img src="./assets/logo.svg" width="84" height="84" alt="Antigravity Telemetry · AGY Token 分析 Logo" />
+  <h1>Antigravity Telemetry · AGY Token 分析</h1>
+  <p><strong>面向 Google Antigravity 2.0 桌面版的纯净明亮、100% 本地只读 Token 用量、实时模型池配额与轮次级诊断 MCP App 原生插件。</strong></p>
 
   <p>
     <a href="./README.md">English</a> ·
@@ -83,19 +83,19 @@
 ### 方式一：通过 Antigravity CLI 安装（推荐）
 
 ```bash
-agy plugin install https://github.com/<your-username>/agy-token-analytics
+agy plugin install https://github.com/En-nagakiro/agy-token-analytics
 ```
 
 ### 方式二：直接 `git clone` 到插件目录
 
 **Windows（PowerShell 7）：**
 ```powershell
-git clone https://github.com/<your-username>/agy-token-analytics.git "$HOME\.gemini\config\plugins\agy-token-analytics"
+git clone https://github.com/En-nagakiro/agy-token-analytics.git "$HOME\.gemini\config\plugins\agy-token-analytics"
 ```
 
 **macOS / Linux：**
 ```bash
-git clone https://github.com/<your-username>/agy-token-analytics.git "${HOME}/.gemini/config/plugins/agy-token-analytics"
+git clone https://github.com/En-nagakiro/agy-token-analytics.git "${HOME}/.gemini/config/plugins/agy-token-analytics"
 ```
 
 Antigravity 2.0 会自动发现 `~/.gemini/config/plugins/` 下的新插件。随后即可从左侧导航栏直接点击 **「Token 分析」**，或在对话右侧边栏点 **`+`** 打开。
@@ -119,7 +119,7 @@ Antigravity 2.0 会自动发现 `~/.gemini/config/plugins/` 下的新插件。�
 ## 源码开发与本地构建
 
 ```bash
-git clone https://github.com/<your-username>/agy-token-analytics.git
+git clone https://github.com/En-nagakiro/agy-token-analytics.git
 cd agy-token-analytics
 npm install
 ```
