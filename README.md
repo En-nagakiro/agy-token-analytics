@@ -11,7 +11,9 @@ A **100% local, read-only** Token Usage, Live Quota & Turn-by-Turn Diagnostics *
 - **Native MCP App Multi-Entrypoint (原生全入口)**
   - **Left Sidebar Full-Page Dashboard (`global`)**: Wide-screen analytics workspace.
   - **Right Auxiliary Side Pane (`aux_pane`)**: Compact side view with one-click **"Send to AI for Diagnostics"** (`发给 AI 诊断`).
-  - **In-Chat AI Queries**: Only 3 lightweight read-only tools are exposed to the model; all heavy dashboard queries, pricing edits, and exports are isolated as `app-only` tools (`visibility: ["app"]`) with **zero model context overhead**.
+  - **In-Chat AI Queries & Pricing Sync**: 4 lightweight tools are exposed to the model (dashboard entry, compact summary, session diagnostics, and `sync_pricing_catalog`); all heavy dashboard queries and exports are isolated as `app-only` tools (`visibility: ["app"]`) with **zero model context overhead**.
+- **AI-Driven Live Pricing & FX Updates (大模型联网更新汇率与最新报价)**
+  - The plugin itself remains 100% offline with zero outbound requests. Simply ask Antigravity *"更新 AGY Token 分析的汇率、受支持模型与最新报价"* (or click **"让 AI 更新汇率与报价"** in the settings drawer): the bundled `update-pricing` skill guides the model to inspect locally observed models, verify current USD→CNY FX rates and official API pricing via web search, and write verified updates safely back via `sync_pricing_catalog`.
 - **100% Local Read-Only & Millisecond Incremental Sync (纯本地只读 & 毫秒级增量索引)**
   - Zero-dependency Python 3 parser reads `~/.gemini/antigravity/conversations/*.db` and `conversation_summaries.db` strictly in read-only mode (`mode=ro`, `PRAGMA query_only = ON`, and `immutable=1` for static DBs without an active WAL so zero `-wal`/`-shm` sidecars are created).
   - Caches parsed turn metrics incrementally in `${PLUGIN_DATA}/usage_index.sqlite` — hundreds of conversations sync in tens of milliseconds on subsequent opens.
@@ -82,8 +84,10 @@ agy-token-analytics/
 │   ├── engine.py           # Zero-dependency Python 3 read-only incremental SQLite & protobuf engine
 │   └── test_engine.py      # Unit & local DB regression tests
 ├── server/
-│   ├── index.mjs           # Node.js MCP Server (3 model tools + 6 app-only tools + live quota client)
+│   ├── index.mjs           # Node.js MCP Server (4 model tools + 6 app-only tools + live quota client)
 │   └── pricing.mjs         # Configurable pricing table, family fallback, USD/CNY & cache savings math
+├── skills/
+│   └── update-pricing/     # Built-in skill guiding the AI to verify & sync live FX rates and model pricing
 ├── web/
 │   ├── index.html          # Vite single-file entry
 │   ├── vite.config.mjs     # vite-plugin-singlefile config

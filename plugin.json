@@ -6,7 +6,7 @@
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "打开 AGY Token 分析大盘",
-    "统计我最近 7 天哪个项目和模型最耗 Token，缓存命中率如何",
-    "找出最近最消耗 Token 的 3 个会话并分析耗时与工具瓶颈"
+    "联网更新 AGY Token 分析的汇率、受支持模型与最新官方报价",
+    "找出最近 7 天最消耗 Token 的 3 个会话并分析耗时与工具瓶颈"
   ]
 }

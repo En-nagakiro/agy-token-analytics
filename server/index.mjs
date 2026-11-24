@@ -17,6 +17,7 @@ import {
   enrichDashboardWithCosts,
   enrichSessionDetailWithCosts,
   loadConfig,
+  resolveRate,
   saveConfig,
 } from './pricing.mjs';
 
@@ -621,7 +622,129 @@ server.registerTool(
   },
 );
 
-// 5. App-Only Tools (Hidden from model -> 0 context window overhead)
+// 5. Model-visible Pricing, Supported Models & FX Rate Sync Tool
+server.registerTool(
+  'sync_pricing_catalog',
+  {
+    title: '查看或更新汇率、受支持模型与 API 报价表',
+    description:
+      '供大模型读取本机实际使用过的模型清单及当前单价/汇率（action="inspect"），或在联网核实官方 API 定价与 USD→CNY 实时汇率后批量更新本地配置（action="update"）。所有单价单位为美元 / 百万 Token。',
+    inputSchema: {
+      action: z
+        .enum(['inspect', 'update'])
+        .describe('"inspect" 查看当前汇率、报价表及本机未精确覆盖的模型；"update" 合并写入最新汇率、新增/更新的模型报价。'),
+      fx_rate: z
+        .number()
+        .min(1)
+        .max(20)
+        .optional()
+        .describe('最新 USD → CNY 汇率（例如 7.24），仅在 action="update" 时使用'),
+      currency: z.enum(['CNY', 'USD']).optional().describe('可选：切换默认展示币种'),
+      prices: z
+        .record(
+          z.string(),
+          z.object({
+            input: z.number().min(0).max(500).describe('非缓存输入单价（USD / 1M tokens）'),
+            cacheRead: z.number().min(0).max(500).describe('缓存读取单价（USD / 1M tokens）'),
+            output: z.number().min(0).max(1000).describe('输出 / Thinking 单价（USD / 1M tokens）'),
+            isReference: z
+              .boolean()
+              .optional()
+              .describe('若该模型尚无官方公开报价、属于估算参考价请设为 true；官方实价设为 false'),
+          }),
+        )
+        .optional()
+        .describe('要新增或更新的模型报价字典（默认合并更新，不会清除其他已配置模型）'),
+      remove_models: z.array(z.string()).optional().describe('可选：要从单价表移除的模型名称列表'),
+      source_note: z
+        .string()
+        .max(240)
+        .optional()
+        .describe('更新来源与日期备注（如 "2026-11-24 官方定价页 + 实时汇率"）'),
+    },
+  },
+  async (args) => {
+    if (args.action === 'inspect') {
+      const { dashboard, config } = await loadFullDashboard({ range: 'all', forceSync: false });
+      const seenModels = (dashboard.filters?.models || []).map((mName) => {
+        const resolved = resolveRate(mName, config.prices);
+        return {
+          model: mName,
+          matchedKey: resolved.matchedKey || '(系列兜底)',
+          isReference: Boolean(resolved.isReference),
+          rate: {
+            input: resolved.input,
+            cacheRead: resolved.cacheRead,
+            output: resolved.output,
+          },
+        };
+      });
+      const unmapped = seenModels.filter((x) => !x.matchedKey || x.matchedKey === '(系列兜底)' || x.isReference);
+      const lines = [
+        `### 当前 AGY Token 报价与汇率状态`,
+        `- **默认币种**：${config.currency} | **USD → CNY 汇率**：${config.fxRate}`,
+        `- **上次更新**：${config.pricingMeta?.updatedAt || '从未更新'}（来源：${config.pricingMeta?.source || '内置默认参考表'}）`,
+        `- **已配置单价模型数**：${Object.keys(config.prices || {}).length}`,
+        `- **本机历史实际用到过的模型（${seenModels.length} 个）**：`,
+        ...seenModels.map(
+          (m) =>
+            `  - ${m.model} → 匹配 \`${m.matchedKey}\` ($${m.rate.input} / $${m.rate.cacheRead} / $${m.rate.output} per 1M)${m.isReference ? ' **[参考/待核实]**' : ''}`,
+        ),
+      ];
+      return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+          currency: config.currency,
+          fxRate: config.fxRate,
+          pricingMeta: config.pricingMeta,
+          configuredPrices: config.prices,
+          localObservedModels: seenModels,
+          needsAttentionModels: unmapped.map((u) => u.model),
+        },
+      };
+    }
+
+    // action === 'update'
+    if (args.fx_rate === undefined && !args.prices && !args.remove_models?.length && !args.currency) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: 'action="update" 时至少需要提供 fx_rate、prices、remove_models 或 currency 中的一项。' }],
+      };
+    }
+
+    const before = loadConfig(DATA_DIR);
+    const updated = saveConfig(DATA_DIR, {
+      fxRate: args.fx_rate,
+      currency: args.currency,
+      prices: args.prices,
+      removeModels: args.remove_models,
+      sourceNote: args.source_note || 'AI 联网核实更新',
+      updatedBy: 'ai',
+    });
+
+    const changedModels = Object.keys(args.prices || {});
+    const removedModels = args.remove_models || [];
+    const summaryLines = [
+      `### 已成功更新本地汇率与模型报价配置`,
+      `- **USD → CNY 汇率**：${before.fxRate} → **${updated.fxRate}**`,
+      `- **新增 / 更新模型（${changedModels.length} 个）**：${changedModels.length ? changedModels.join('、') : '无'}`,
+      ...(removedModels.length ? [`- **移除模型**：${removedModels.join('、')}`] : []),
+      `- **当前共收录模型**：${Object.keys(updated.prices).length} 个`,
+      `- **来源备注**：${updated.pricingMeta.source}（${updated.pricingMeta.updatedAt}）`,
+      `- 提示：在「Token 分析」大盘点击右上角 **「同步」** 即可立即按最新汇率与单价重算全盘费用。`,
+    ];
+
+    return {
+      content: [{ type: 'text', text: summaryLines.join('\n') }],
+      structuredContent: {
+        ok: true,
+        config: updated,
+      },
+    };
+  },
+);
+
+// 6. App-Only Tools (Hidden from model -> 0 context window overhead)
 const APP_ONLY_META = { ui: { visibility: ['app'] } };
 
 registerAppTool(
@@ -733,6 +856,7 @@ registerAppTool(
           }),
         )
         .optional(),
+      replacePrices: z.boolean().optional(),
       resetPrices: z.boolean().optional(),
     },
     _meta: APP_ONLY_META,

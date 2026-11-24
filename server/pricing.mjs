@@ -36,6 +36,11 @@ export const DEFAULT_CONFIG = {
     palette: 'glacier', // 冰川清透 (user chosen default)
     font: 'comic',      // Comic Sans MS (user chosen default)
   },
+  pricingMeta: {
+    updatedAt: '',
+    source: '内置默认参考表',
+    updatedBy: 'default',
+  },
   prices: { ...DEFAULT_PRICES },
 };
 
@@ -57,6 +62,11 @@ export function loadConfig(dataDir) {
           ? raw.appearance.font
           : DEFAULT_CONFIG.appearance.font,
       },
+      pricingMeta: {
+        updatedAt: String(raw?.pricingMeta?.updatedAt || ''),
+        source: String(raw?.pricingMeta?.source || DEFAULT_CONFIG.pricingMeta.source),
+        updatedBy: String(raw?.pricingMeta?.updatedBy || DEFAULT_CONFIG.pricingMeta.updatedBy),
+      },
       prices: { ...DEFAULT_PRICES, ...(raw.prices || {}) },
     };
   } catch {
@@ -66,6 +76,53 @@ export function loadConfig(dataDir) {
 
 export function saveConfig(dataDir, patch) {
   const current = loadConfig(dataDir);
+  const nextPrices = patch.resetPrices
+    ? { ...DEFAULT_PRICES }
+    : patch.replacePrices && patch.prices
+      ? { ...patch.prices }
+      : { ...current.prices, ...(patch.prices || {}) };
+
+  if (Array.isArray(patch.removeModels)) {
+    for (const m of patch.removeModels) {
+      delete nextPrices[m];
+    }
+  }
+
+  // Normalize price values
+  for (const [k, v] of Object.entries(nextPrices)) {
+    if (!v || typeof v !== 'object') {
+      delete nextPrices[k];
+      continue;
+    }
+    nextPrices[k] = {
+      input: Math.max(0, Number(v.input) || 0),
+      cacheRead: Math.max(0, Number(v.cacheRead) || 0),
+      output: Math.max(0, Number(v.output) || 0),
+      isReference: Boolean(v.isReference),
+    };
+  }
+
+  const touchedPricing =
+    Boolean(patch.resetPrices) ||
+    Boolean(patch.prices && Object.keys(patch.prices).length > 0) ||
+    Boolean(patch.fxRate) ||
+    Boolean(patch.removeModels?.length);
+
+  const nextMeta = touchedPricing
+    ? {
+        updatedAt: new Date().toISOString(),
+        source: String(
+          patch.sourceNote ||
+            (patch.resetPrices
+              ? '已重置为内置默认参考表'
+              : patch.updatedBy === 'ai'
+                ? 'AI 联网核实更新'
+                : '手动编辑保存'),
+        ),
+        updatedBy: String(patch.updatedBy || (patch.resetPrices ? 'default' : 'manual')),
+      }
+    : current.pricingMeta;
+
   const next = {
     currency: patch.currency === 'USD' || patch.currency === 'CNY' ? patch.currency : current.currency,
     fxRate: Number(patch.fxRate) > 0 ? Number(patch.fxRate) : current.fxRate,
@@ -73,23 +130,10 @@ export function saveConfig(dataDir, patch) {
       palette: patch?.appearance?.palette || current.appearance.palette,
       font: patch?.appearance?.font || current.appearance.font,
     },
-    prices: patch.resetPrices
-      ? { ...DEFAULT_PRICES }
-      : { ...current.prices, ...(patch.prices || {}) },
+    pricingMeta: nextMeta,
+    prices: nextPrices,
   };
-  // Normalize price values
-  for (const [k, v] of Object.entries(next.prices)) {
-    if (!v || typeof v !== 'object') {
-      delete next.prices[k];
-      continue;
-    }
-    next.prices[k] = {
-      input: Math.max(0, Number(v.input) || 0),
-      cacheRead: Math.max(0, Number(v.cacheRead) || 0),
-      output: Math.max(0, Number(v.output) || 0),
-      isReference: Boolean(v.isReference),
-    };
-  }
+
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(join(dataDir, 'config.json'), JSON.stringify(next, null, 2), 'utf8');
   return next;

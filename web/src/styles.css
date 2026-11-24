@@ -688,8 +688,8 @@ table.clean-table tbody tr:hover {
 
 .price-grid-row {
   display: grid;
-  grid-template-columns: 1.8fr 0.8fr 0.8fr 0.9fr;
-  gap: 8px;
+  grid-template-columns: 1.75fr 0.75fr 0.75fr 0.85fr 24px;
+  gap: 7px;
   align-items: center;
   padding: 8px 10px;
   border-radius: 12px;

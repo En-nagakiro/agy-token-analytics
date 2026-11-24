@@ -31,6 +31,7 @@ try {
         $PluginDir,
         (Join-Path $PluginDir 'assets'),
         (Join-Path $PluginDir 'parser'),
+        (Join-Path $PluginDir 'skills\update-pricing'),
         (Join-Path $PluginDir 'dist'),
         (Join-Path $PluginDir 'dist\ui')
     )
@@ -43,6 +44,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination $PluginDir -Force
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'assets\logo.svg') -Destination (Join-Path $PluginDir 'assets\logo.svg') -Force
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'parser\engine.py') -Destination (Join-Path $PluginDir 'parser\engine.py') -Force
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'skills\update-pricing\SKILL.md') -Destination (Join-Path $PluginDir 'skills\update-pricing\SKILL.md') -Force
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'dist\server.cjs') -Destination (Join-Path $PluginDir 'dist\server.cjs') -Force
     Copy-Item -LiteralPath (Join-Path $ProjectRoot 'dist\ui\index.html') -Destination (Join-Path $PluginDir 'dist\ui\index.html') -Force
 

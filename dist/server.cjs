@@ -28819,6 +28819,11 @@ var DEFAULT_CONFIG = {
     font: "comic"
     // Comic Sans MS (user chosen default)
   },
+  pricingMeta: {
+    updatedAt: "",
+    source: "\u5185\u7F6E\u9ED8\u8BA4\u53C2\u8003\u8868",
+    updatedBy: "default"
+  },
   prices: { ...DEFAULT_PRICES }
 };
 function loadConfig(dataDir) {
@@ -28835,6 +28840,11 @@ function loadConfig(dataDir) {
         palette: ["glacier", "sky", "dawn"].includes(raw?.appearance?.palette) ? raw.appearance.palette : DEFAULT_CONFIG.appearance.palette,
         font: ["comic", "times", "garamond", "baskerville", "century", "candara", "editorial", "humanist"].includes(raw?.appearance?.font) ? raw.appearance.font : DEFAULT_CONFIG.appearance.font
       },
+      pricingMeta: {
+        updatedAt: String(raw?.pricingMeta?.updatedAt || ""),
+        source: String(raw?.pricingMeta?.source || DEFAULT_CONFIG.pricingMeta.source),
+        updatedBy: String(raw?.pricingMeta?.updatedBy || DEFAULT_CONFIG.pricingMeta.updatedBy)
+      },
       prices: { ...DEFAULT_PRICES, ...raw.prices || {} }
     };
   } catch {
@@ -28843,6 +28853,32 @@ function loadConfig(dataDir) {
 }
 function saveConfig(dataDir, patch) {
   const current = loadConfig(dataDir);
+  const nextPrices = patch.resetPrices ? { ...DEFAULT_PRICES } : patch.replacePrices && patch.prices ? { ...patch.prices } : { ...current.prices, ...patch.prices || {} };
+  if (Array.isArray(patch.removeModels)) {
+    for (const m2 of patch.removeModels) {
+      delete nextPrices[m2];
+    }
+  }
+  for (const [k2, v2] of Object.entries(nextPrices)) {
+    if (!v2 || typeof v2 !== "object") {
+      delete nextPrices[k2];
+      continue;
+    }
+    nextPrices[k2] = {
+      input: Math.max(0, Number(v2.input) || 0),
+      cacheRead: Math.max(0, Number(v2.cacheRead) || 0),
+      output: Math.max(0, Number(v2.output) || 0),
+      isReference: Boolean(v2.isReference)
+    };
+  }
+  const touchedPricing = Boolean(patch.resetPrices) || Boolean(patch.prices && Object.keys(patch.prices).length > 0) || Boolean(patch.fxRate) || Boolean(patch.removeModels?.length);
+  const nextMeta = touchedPricing ? {
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    source: String(
+      patch.sourceNote || (patch.resetPrices ? "\u5DF2\u91CD\u7F6E\u4E3A\u5185\u7F6E\u9ED8\u8BA4\u53C2\u8003\u8868" : patch.updatedBy === "ai" ? "AI \u8054\u7F51\u6838\u5B9E\u66F4\u65B0" : "\u624B\u52A8\u7F16\u8F91\u4FDD\u5B58")
+    ),
+    updatedBy: String(patch.updatedBy || (patch.resetPrices ? "default" : "manual"))
+  } : current.pricingMeta;
   const next = {
     currency: patch.currency === "USD" || patch.currency === "CNY" ? patch.currency : current.currency,
     fxRate: Number(patch.fxRate) > 0 ? Number(patch.fxRate) : current.fxRate,
@@ -28850,20 +28886,9 @@ function saveConfig(dataDir, patch) {
       palette: patch?.appearance?.palette || current.appearance.palette,
       font: patch?.appearance?.font || current.appearance.font
     },
-    prices: patch.resetPrices ? { ...DEFAULT_PRICES } : { ...current.prices, ...patch.prices || {} }
+    pricingMeta: nextMeta,
+    prices: nextPrices
   };
-  for (const [k2, v2] of Object.entries(next.prices)) {
-    if (!v2 || typeof v2 !== "object") {
-      delete next.prices[k2];
-      continue;
-    }
-    next.prices[k2] = {
-      input: Math.max(0, Number(v2.input) || 0),
-      cacheRead: Math.max(0, Number(v2.cacheRead) || 0),
-      output: Math.max(0, Number(v2.output) || 0),
-      isReference: Boolean(v2.isReference)
-    };
-  }
   (0, import_node_fs.mkdirSync)(dataDir, { recursive: true });
   (0, import_node_fs.writeFileSync)((0, import_node_path.join)(dataDir, "config.json"), JSON.stringify(next, null, 2), "utf8");
   return next;
@@ -29509,6 +29534,102 @@ ${blocks.join("\n")}` }]
     };
   }
 );
+server.registerTool(
+  "sync_pricing_catalog",
+  {
+    title: "\u67E5\u770B\u6216\u66F4\u65B0\u6C47\u7387\u3001\u53D7\u652F\u6301\u6A21\u578B\u4E0E API \u62A5\u4EF7\u8868",
+    description: '\u4F9B\u5927\u6A21\u578B\u8BFB\u53D6\u672C\u673A\u5B9E\u9645\u4F7F\u7528\u8FC7\u7684\u6A21\u578B\u6E05\u5355\u53CA\u5F53\u524D\u5355\u4EF7/\u6C47\u7387\uFF08action="inspect"\uFF09\uFF0C\u6216\u5728\u8054\u7F51\u6838\u5B9E\u5B98\u65B9 API \u5B9A\u4EF7\u4E0E USD\u2192CNY \u5B9E\u65F6\u6C47\u7387\u540E\u6279\u91CF\u66F4\u65B0\u672C\u5730\u914D\u7F6E\uFF08action="update"\uFF09\u3002\u6240\u6709\u5355\u4EF7\u5355\u4F4D\u4E3A\u7F8E\u5143 / \u767E\u4E07 Token\u3002',
+    inputSchema: {
+      action: external_exports.enum(["inspect", "update"]).describe('"inspect" \u67E5\u770B\u5F53\u524D\u6C47\u7387\u3001\u62A5\u4EF7\u8868\u53CA\u672C\u673A\u672A\u7CBE\u786E\u8986\u76D6\u7684\u6A21\u578B\uFF1B"update" \u5408\u5E76\u5199\u5165\u6700\u65B0\u6C47\u7387\u3001\u65B0\u589E/\u66F4\u65B0\u7684\u6A21\u578B\u62A5\u4EF7\u3002'),
+      fx_rate: external_exports.number().min(1).max(20).optional().describe('\u6700\u65B0 USD \u2192 CNY \u6C47\u7387\uFF08\u4F8B\u5982 7.24\uFF09\uFF0C\u4EC5\u5728 action="update" \u65F6\u4F7F\u7528'),
+      currency: external_exports.enum(["CNY", "USD"]).optional().describe("\u53EF\u9009\uFF1A\u5207\u6362\u9ED8\u8BA4\u5C55\u793A\u5E01\u79CD"),
+      prices: external_exports.record(
+        external_exports.string(),
+        external_exports.object({
+          input: external_exports.number().min(0).max(500).describe("\u975E\u7F13\u5B58\u8F93\u5165\u5355\u4EF7\uFF08USD / 1M tokens\uFF09"),
+          cacheRead: external_exports.number().min(0).max(500).describe("\u7F13\u5B58\u8BFB\u53D6\u5355\u4EF7\uFF08USD / 1M tokens\uFF09"),
+          output: external_exports.number().min(0).max(1e3).describe("\u8F93\u51FA / Thinking \u5355\u4EF7\uFF08USD / 1M tokens\uFF09"),
+          isReference: external_exports.boolean().optional().describe("\u82E5\u8BE5\u6A21\u578B\u5C1A\u65E0\u5B98\u65B9\u516C\u5F00\u62A5\u4EF7\u3001\u5C5E\u4E8E\u4F30\u7B97\u53C2\u8003\u4EF7\u8BF7\u8BBE\u4E3A true\uFF1B\u5B98\u65B9\u5B9E\u4EF7\u8BBE\u4E3A false")
+        })
+      ).optional().describe("\u8981\u65B0\u589E\u6216\u66F4\u65B0\u7684\u6A21\u578B\u62A5\u4EF7\u5B57\u5178\uFF08\u9ED8\u8BA4\u5408\u5E76\u66F4\u65B0\uFF0C\u4E0D\u4F1A\u6E05\u9664\u5176\u4ED6\u5DF2\u914D\u7F6E\u6A21\u578B\uFF09"),
+      remove_models: external_exports.array(external_exports.string()).optional().describe("\u53EF\u9009\uFF1A\u8981\u4ECE\u5355\u4EF7\u8868\u79FB\u9664\u7684\u6A21\u578B\u540D\u79F0\u5217\u8868"),
+      source_note: external_exports.string().max(240).optional().describe('\u66F4\u65B0\u6765\u6E90\u4E0E\u65E5\u671F\u5907\u6CE8\uFF08\u5982 "2026-11-24 \u5B98\u65B9\u5B9A\u4EF7\u9875 + \u5B9E\u65F6\u6C47\u7387"\uFF09')
+    }
+  },
+  async (args) => {
+    if (args.action === "inspect") {
+      const { dashboard, config: config2 } = await loadFullDashboard({ range: "all", forceSync: false });
+      const seenModels = (dashboard.filters?.models || []).map((mName) => {
+        const resolved = resolveRate(mName, config2.prices);
+        return {
+          model: mName,
+          matchedKey: resolved.matchedKey || "(\u7CFB\u5217\u515C\u5E95)",
+          isReference: Boolean(resolved.isReference),
+          rate: {
+            input: resolved.input,
+            cacheRead: resolved.cacheRead,
+            output: resolved.output
+          }
+        };
+      });
+      const unmapped = seenModels.filter((x) => !x.matchedKey || x.matchedKey === "(\u7CFB\u5217\u515C\u5E95)" || x.isReference);
+      const lines = [
+        `### \u5F53\u524D AGY Token \u62A5\u4EF7\u4E0E\u6C47\u7387\u72B6\u6001`,
+        `- **\u9ED8\u8BA4\u5E01\u79CD**\uFF1A${config2.currency} | **USD \u2192 CNY \u6C47\u7387**\uFF1A${config2.fxRate}`,
+        `- **\u4E0A\u6B21\u66F4\u65B0**\uFF1A${config2.pricingMeta?.updatedAt || "\u4ECE\u672A\u66F4\u65B0"}\uFF08\u6765\u6E90\uFF1A${config2.pricingMeta?.source || "\u5185\u7F6E\u9ED8\u8BA4\u53C2\u8003\u8868"}\uFF09`,
+        `- **\u5DF2\u914D\u7F6E\u5355\u4EF7\u6A21\u578B\u6570**\uFF1A${Object.keys(config2.prices || {}).length}`,
+        `- **\u672C\u673A\u5386\u53F2\u5B9E\u9645\u7528\u5230\u8FC7\u7684\u6A21\u578B\uFF08${seenModels.length} \u4E2A\uFF09**\uFF1A`,
+        ...seenModels.map(
+          (m2) => `  - ${m2.model} \u2192 \u5339\u914D \`${m2.matchedKey}\` ($${m2.rate.input} / $${m2.rate.cacheRead} / $${m2.rate.output} per 1M)${m2.isReference ? " **[\u53C2\u8003/\u5F85\u6838\u5B9E]**" : ""}`
+        )
+      ];
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: {
+          currency: config2.currency,
+          fxRate: config2.fxRate,
+          pricingMeta: config2.pricingMeta,
+          configuredPrices: config2.prices,
+          localObservedModels: seenModels,
+          needsAttentionModels: unmapped.map((u2) => u2.model)
+        }
+      };
+    }
+    if (args.fx_rate === void 0 && !args.prices && !args.remove_models?.length && !args.currency) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: 'action="update" \u65F6\u81F3\u5C11\u9700\u8981\u63D0\u4F9B fx_rate\u3001prices\u3001remove_models \u6216 currency \u4E2D\u7684\u4E00\u9879\u3002' }]
+      };
+    }
+    const before = loadConfig(DATA_DIR);
+    const updated = saveConfig(DATA_DIR, {
+      fxRate: args.fx_rate,
+      currency: args.currency,
+      prices: args.prices,
+      removeModels: args.remove_models,
+      sourceNote: args.source_note || "AI \u8054\u7F51\u6838\u5B9E\u66F4\u65B0",
+      updatedBy: "ai"
+    });
+    const changedModels = Object.keys(args.prices || {});
+    const removedModels = args.remove_models || [];
+    const summaryLines = [
+      `### \u5DF2\u6210\u529F\u66F4\u65B0\u672C\u5730\u6C47\u7387\u4E0E\u6A21\u578B\u62A5\u4EF7\u914D\u7F6E`,
+      `- **USD \u2192 CNY \u6C47\u7387**\uFF1A${before.fxRate} \u2192 **${updated.fxRate}**`,
+      `- **\u65B0\u589E / \u66F4\u65B0\u6A21\u578B\uFF08${changedModels.length} \u4E2A\uFF09**\uFF1A${changedModels.length ? changedModels.join("\u3001") : "\u65E0"}`,
+      ...removedModels.length ? [`- **\u79FB\u9664\u6A21\u578B**\uFF1A${removedModels.join("\u3001")}`] : [],
+      `- **\u5F53\u524D\u5171\u6536\u5F55\u6A21\u578B**\uFF1A${Object.keys(updated.prices).length} \u4E2A`,
+      `- **\u6765\u6E90\u5907\u6CE8**\uFF1A${updated.pricingMeta.source}\uFF08${updated.pricingMeta.updatedAt}\uFF09`,
+      `- \u63D0\u793A\uFF1A\u5728\u300CToken \u5206\u6790\u300D\u5927\u76D8\u70B9\u51FB\u53F3\u4E0A\u89D2 **\u300C\u540C\u6B65\u300D** \u5373\u53EF\u7ACB\u5373\u6309\u6700\u65B0\u6C47\u7387\u4E0E\u5355\u4EF7\u91CD\u7B97\u5168\u76D8\u8D39\u7528\u3002`
+    ];
+    return {
+      content: [{ type: "text", text: summaryLines.join("\n") }],
+      structuredContent: {
+        ok: true,
+        config: updated
+      }
+    };
+  }
+);
 var APP_ONLY_META = { ui: { visibility: ["app"] } };
 K3(
   server,
@@ -29609,6 +29730,7 @@ K3(
           isReference: external_exports.boolean().optional()
         })
       ).optional(),
+      replacePrices: external_exports.boolean().optional(),
       resetPrices: external_exports.boolean().optional()
     },
     _meta: APP_ONLY_META

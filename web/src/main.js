@@ -41,6 +41,7 @@ const STATE = {
   sessionDetail: null,
   sessionLoading: false,
   drawerOpen: false,
+  aiPromptPreview: '',
   dashboard: null,
   quota: null,
   config: {
@@ -338,6 +339,63 @@ async function sendSessionToAI() {
     }
   } catch (err) {
     showToast(`发送失败：${err?.message || err}`);
+  }
+}
+
+function buildPricingUpdatePrompt() {
+  const refModels = (STATE.dashboard?.models || [])
+    .filter((m) => m.is_reference)
+    .map((m) => m.model_name);
+  const allSeen = (STATE.dashboard?.filters?.models || []).slice(0, 12);
+  return [
+    '请帮我联网更新 AGY Token 分析插件的 USD→CNY 实时汇率、受支持模型列表和最新官方 API 报价：',
+    '1. 先调用 `sync_pricing_catalog(action="inspect")` 查看当前单价表和本机历史用过的模型；',
+    '2. 联网核实今日 USD→CNY 实时汇率以及 Google Gemini / Anthropic Claude / OpenAI 官方 API 最新每百万 Token 报价（分别列出 input / cacheRead / output）；',
+    ...(refModels.length ? [`3. 重点核查当前走参考价的模型：${refModels.join('、')}（若尚无官方公开报价，请保留 isReference=true 并注明依据）；`] : []),
+    ...(allSeen.length && !refModels.length ? [`3. 本机已用模型包括：${allSeen.join('、')}；`] : []),
+    '4. 调用 `sync_pricing_catalog(action="update", ...)` 写入更新，并向我列出变更前后对比与官方来源链接。',
+  ].join('\n');
+}
+
+async function askAIToUpdatePricing() {
+  const promptText = buildPricingUpdatePrompt();
+  if (STATE.canMessageHost) {
+    try {
+      await app.sendMessage({
+        role: 'user',
+        content: [{ type: 'text', text: promptText }],
+      });
+      STATE.drawerOpen = false;
+      STATE.aiPromptPreview = '';
+      render();
+      showToast('已发给当前对话 AI 联网更新，完成后点「同步」生效');
+      return;
+    } catch (err) {
+      showToast(`直接发送失败：${err?.message || err}`);
+    }
+  } else if (STATE.canUpdateContext) {
+    try {
+      await app.updateModelContext({
+        content: [{ type: 'text', text: promptText }],
+      });
+      STATE.drawerOpen = false;
+      STATE.aiPromptPreview = '';
+      render();
+      showToast('已附加更新指令到输入框，发送任意消息即可让 AI 执行');
+      return;
+    } catch (err) {
+      showToast(`附加上下文失败：${err?.message || err}`);
+    }
+  }
+
+  // Global view fallback (no owning conversation): copy prompt & reveal inline box
+  STATE.aiPromptPreview = promptText;
+  render();
+  try {
+    await navigator.clipboard.writeText(promptText);
+    showToast('已复制更新指令，粘贴到任意对话即可让 AI 自动更新');
+  } catch {
+    showToast('全页模式无法直接发消息，请复制下方指令粘贴到对话中执行');
   }
 }
 
@@ -1017,6 +1075,11 @@ function renderDrawer() {
     }
   }
   const priceEntries = Object.entries(cfg.prices || {});
+  const meta = cfg.pricingMeta || {};
+  const metaTime = meta.updatedAt
+    ? new Date(meta.updatedAt).toLocaleString('zh-CN', { hour12: false })
+    : '内置默认';
+  const canSendAI = STATE.canMessageHost || STATE.canUpdateContext;
 
   return `
     <div id="drawer-backdrop" class="drawer-backdrop">
@@ -1027,6 +1090,33 @@ function renderDrawer() {
             <div class="subtle" style="font-size:11.5px; margin-top:2px;">自动持久化至本地 PLUGIN_DATA/config.json</div>
           </div>
           <button id="btn-close-drawer" class="pill-btn" style="padding:5px 10px;">关闭</button>
+        </div>
+
+        <!-- AI Auto-Update Pricing & FX Card -->
+        <div class="well" style="border:1px solid var(--hairline-hover); background:var(--brand-soft);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="min-width:0;">
+              <div style="font-weight:600; font-size:12.5px; color:var(--ink-1);">让 AI 联网更新汇率与最新报价</div>
+              <div class="muted" style="font-size:11.5px; margin-top:2px;">
+                插件保持离线只读，由对话 AI 检索官网定价与实时汇率后写回本地
+              </div>
+            </div>
+            <button id="btn-ai-update-pricing" class="pill-btn primary" style="flex-shrink:0;">
+              ${canSendAI ? '一键让 AI 更新' : '复制 AI 更新指令'}
+            </button>
+          </div>
+          <div class="subtle num" style="font-size:11px; margin-top:8px; padding-top:7px; border-top:1px solid var(--hairline);">
+            最近更新：${esc(metaTime)} · 来源：${esc(meta.source || '内置默认参考表')}
+          </div>
+          ${
+            STATE.aiPromptPreview
+              ? `<div style="margin-top:8px;">
+                  <div class="muted" style="font-size:11px; margin-bottom:4px;">粘贴以下指令到任意 Antigravity 对话即可自动执行：</div>
+                  <textarea readonly rows="4" onclick="this.select()"
+                            style="width:100%; font-size:11px; padding:8px; border-radius:10px; border:1px solid var(--hairline); background:var(--surface-solid); color:var(--ink-1); resize:vertical;">${esc(STATE.aiPromptPreview)}</textarea>
+                </div>`
+              : ''
+          }
         </div>
 
         <!-- Palette Picker -->
@@ -1067,8 +1157,8 @@ function renderDrawer() {
             <span style="font-weight:500; font-size:12.5px;">模型单价表（USD / 百万 Token）</span>
             <button id="btn-reset-prices" style="border:none; background:transparent; color:var(--brand); font-size:11.5px; cursor:pointer;">恢复默认</button>
           </div>
-          <div style="display:grid; grid-template-columns:1.8fr 0.8fr 0.8fr 0.9fr; gap:8px; padding:0 10px 6px; font-size:11px;" class="subtle en-font">
-            <span>Model</span><span style="text-align:right;">Input</span><span style="text-align:right;">Cache</span><span style="text-align:right;">Output</span>
+          <div style="display:grid; grid-template-columns:1.75fr 0.75fr 0.75fr 0.85fr 24px; gap:7px; padding:0 10px 6px; font-size:11px;" class="subtle en-font">
+            <span>Model</span><span style="text-align:right;">Input</span><span style="text-align:right;">Cache</span><span style="text-align:right;">Output</span><span></span>
           </div>
           <div id="price-rows" style="display:flex; flex-direction:column; gap:7px;">
             ${priceEntries
@@ -1081,6 +1171,8 @@ function renderDrawer() {
                 <input class="price-input num p-in" type="number" step="0.01" value="${rate.input}" />
                 <input class="price-input num p-ca" type="number" step="0.005" value="${rate.cacheRead}" />
                 <input class="price-input num p-out" type="number" step="0.05" value="${rate.output}" />
+                <button class="btn-del-model" data-del-model="${esc(name)}" title="删除此模型"
+                        style="border:none; background:transparent; color:var(--ink-3); cursor:pointer; font-size:13px; padding:0;">×</button>
               </div>`,
               )
               .join('')}
@@ -1430,12 +1522,24 @@ function bindEvents(dash) {
   if (STATE.drawerOpen) {
     const closeDrawer = () => {
       STATE.drawerOpen = false;
+      STATE.aiPromptPreview = '';
       render();
     };
     document.getElementById('btn-close-drawer')?.addEventListener('click', closeDrawer);
     document.getElementById('btn-cancel-drawer')?.addEventListener('click', closeDrawer);
+    document.getElementById('btn-ai-update-pricing')?.addEventListener('click', askAIToUpdatePricing);
     document.getElementById('drawer-backdrop')?.addEventListener('click', (e) => {
       if (e.target.id === 'drawer-backdrop') closeDrawer();
+    });
+
+    document.querySelectorAll('.btn-del-model').forEach((b) => {
+      b.addEventListener('click', () => {
+        const m = b.dataset.delModel;
+        if (m && STATE.config.prices) {
+          delete STATE.config.prices[m];
+          render();
+        }
+      });
     });
 
     document.querySelectorAll('.drawer-pal-btn').forEach((b) => {
@@ -1481,11 +1585,13 @@ function bindEvents(dash) {
         };
       });
       STATE.drawerOpen = false;
+      STATE.aiPromptPreview = '';
       await persistConfig(
         {
           fxRate: fx > 0 ? fx : 7.25,
           appearance: STATE.config.appearance,
           prices,
+          replacePrices: true,
         },
         true,
       );

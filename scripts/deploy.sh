@@ -33,12 +33,13 @@ fi
 
 echo ""
 echo "[3/4] Syncing release bundle to ${PLUGIN_DIR}..."
-mkdir -p "${PLUGIN_DIR}/assets" "${PLUGIN_DIR}/parser" "${PLUGIN_DIR}/dist/ui"
+mkdir -p "${PLUGIN_DIR}/assets" "${PLUGIN_DIR}/parser" "${PLUGIN_DIR}/skills/update-pricing" "${PLUGIN_DIR}/dist/ui"
 cp -f "${PROJECT_ROOT}/plugin.json" "${PLUGIN_DIR}/plugin.json"
 cp -f "${PROJECT_ROOT}/mcp_config.json" "${PLUGIN_DIR}/mcp_config.json"
 cp -f "${PROJECT_ROOT}/README.md" "${PLUGIN_DIR}/README.md"
 cp -f "${PROJECT_ROOT}/assets/logo.svg" "${PLUGIN_DIR}/assets/logo.svg"
 cp -f "${PROJECT_ROOT}/parser/engine.py" "${PLUGIN_DIR}/parser/engine.py"
+cp -f "${PROJECT_ROOT}/skills/update-pricing/SKILL.md" "${PLUGIN_DIR}/skills/update-pricing/SKILL.md"
 cp -f "${PROJECT_ROOT}/dist/server.cjs" "${PLUGIN_DIR}/dist/server.cjs"
 cp -f "${PROJECT_ROOT}/dist/ui/index.html" "${PLUGIN_DIR}/dist/ui/index.html"
 
