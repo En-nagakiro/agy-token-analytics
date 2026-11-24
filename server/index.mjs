@@ -722,8 +722,8 @@ server.registerTool(
       updatedBy: 'ai',
     });
 
-    const changedModels = Object.keys(args.prices || {});
-    const removedModels = args.remove_models || [];
+    const changedModels = Object.keys(args.prices || {}).map((k) => k.trim().replace(/^["']+|["']+$/g, '').trim()).filter(Boolean);
+    const removedModels = (args.remove_models || []).map((k) => k.trim().replace(/^["']+|["']+$/g, '').trim()).filter(Boolean);
     const summaryLines = [
       `### 已成功更新本地汇率与模型报价配置`,
       `- **USD → CNY 汇率**：${before.fxRate} → **${updated.fxRate}**`,

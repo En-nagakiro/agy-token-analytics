@@ -28802,14 +28802,34 @@ var DEFAULT_PRICES = {
   "o3": { input: 2, cacheRead: 0.5, output: 8, isReference: true }
 };
 var FAMILY_FALLBACKS = [
-  { pattern: /opus/i, rate: { input: 15, cacheRead: 1.5, output: 75 } },
-  { pattern: /sonnet/i, rate: { input: 3, cacheRead: 0.3, output: 15 } },
-  { pattern: /haiku/i, rate: { input: 0.8, cacheRead: 0.08, output: 4 } },
-  { pattern: /ultra|pro/i, rate: { input: 1.25, cacheRead: 0.125, output: 10 } },
-  { pattern: /flash|lite|mini/i, rate: { input: 0.3, cacheRead: 0.03, output: 2.5 } },
-  { pattern: /gpt|o[134]/i, rate: { input: 2.5, cacheRead: 1.25, output: 10 } }
+  { pattern: /\bopus\b/i, rate: { input: 4, cacheRead: 0.2, output: 20 } },
+  { pattern: /\bsonnet\b/i, rate: { input: 2, cacheRead: 0.1, output: 10 } },
+  { pattern: /\bhaiku\b/i, rate: { input: 0.8, cacheRead: 0.08, output: 4 } },
+  { pattern: /\b(ultra|pro)\b/i, rate: { input: 2, cacheRead: 0.2, output: 12 } },
+  { pattern: /\b(flash|lite|mini)\b/i, rate: { input: 0.3, cacheRead: 0.03, output: 2.5 } },
+  { pattern: /\b(gpt|o1|o3|o4)\b/i, rate: { input: 2.5, cacheRead: 0.5, output: 10 } }
 ];
-var GENERIC_FALLBACK = { input: 1.25, cacheRead: 0.125, output: 10 };
+var GENERIC_FALLBACK = { input: 1.5, cacheRead: 0.15, output: 10 };
+function sanitizeModelKey(key) {
+  return String(key || "").trim().replace(/^["']+|["']+$/g, "").trim();
+}
+function normalizeForMatch(name) {
+  return sanitizeModelKey(name).toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function sanitizePricesMap(rawMap) {
+  const out = {};
+  for (const [rawK, v2] of Object.entries(rawMap || {})) {
+    const k2 = sanitizeModelKey(rawK);
+    if (!k2 || !v2 || typeof v2 !== "object") continue;
+    out[k2] = {
+      input: Math.max(0, Number(v2.input) || 0),
+      cacheRead: Math.max(0, Number(v2.cacheRead) || 0),
+      output: Math.max(0, Number(v2.output) || 0),
+      isReference: Boolean(v2.isReference)
+    };
+  }
+  return out;
+}
 var DEFAULT_CONFIG = {
   currency: "CNY",
   fxRate: 7.25,
@@ -28845,7 +28865,7 @@ function loadConfig(dataDir) {
         source: String(raw?.pricingMeta?.source || DEFAULT_CONFIG.pricingMeta.source),
         updatedBy: String(raw?.pricingMeta?.updatedBy || DEFAULT_CONFIG.pricingMeta.updatedBy)
       },
-      prices: { ...DEFAULT_PRICES, ...raw.prices || {} }
+      prices: sanitizePricesMap({ ...DEFAULT_PRICES, ...raw.prices || {} })
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);
@@ -28853,23 +28873,12 @@ function loadConfig(dataDir) {
 }
 function saveConfig(dataDir, patch) {
   const current = loadConfig(dataDir);
-  const nextPrices = patch.resetPrices ? { ...DEFAULT_PRICES } : patch.replacePrices && patch.prices ? { ...patch.prices } : { ...current.prices, ...patch.prices || {} };
+  const incomingPrices = sanitizePricesMap(patch.prices || {});
+  const nextPrices = patch.resetPrices ? sanitizePricesMap(DEFAULT_PRICES) : patch.replacePrices && patch.prices ? incomingPrices : { ...current.prices, ...incomingPrices };
   if (Array.isArray(patch.removeModels)) {
     for (const m2 of patch.removeModels) {
-      delete nextPrices[m2];
+      delete nextPrices[sanitizeModelKey(m2)];
     }
-  }
-  for (const [k2, v2] of Object.entries(nextPrices)) {
-    if (!v2 || typeof v2 !== "object") {
-      delete nextPrices[k2];
-      continue;
-    }
-    nextPrices[k2] = {
-      input: Math.max(0, Number(v2.input) || 0),
-      cacheRead: Math.max(0, Number(v2.cacheRead) || 0),
-      output: Math.max(0, Number(v2.output) || 0),
-      isReference: Boolean(v2.isReference)
-    };
   }
   const touchedPricing = Boolean(patch.resetPrices) || Boolean(patch.prices && Object.keys(patch.prices).length > 0) || Boolean(patch.fxRate) || Boolean(patch.removeModels?.length);
   const nextMeta = touchedPricing ? {
@@ -28894,23 +28903,26 @@ function saveConfig(dataDir, patch) {
   return next;
 }
 function resolveRate(modelName, pricesMap) {
-  const clean = String(modelName || "").trim();
+  const clean = sanitizeModelKey(modelName);
   const prices = pricesMap || DEFAULT_PRICES;
   if (clean && prices[clean]) {
     return { ...prices[clean], matchedKey: clean };
   }
-  const lower = clean.toLowerCase();
+  const normName = normalizeForMatch(clean);
   let bestKey = "";
+  let bestLen = 0;
   for (const key of Object.keys(prices)) {
-    if (lower.includes(key.toLowerCase()) && key.length > bestKey.length) {
+    const normKey = normalizeForMatch(key);
+    if (normKey && normName.includes(normKey) && normKey.length > bestLen) {
       bestKey = key;
+      bestLen = normKey.length;
     }
   }
   if (bestKey) {
     return { ...prices[bestKey], matchedKey: bestKey };
   }
   for (const f2 of FAMILY_FALLBACKS) {
-    if (f2.pattern.test(clean)) {
+    if (f2.pattern.test(normName)) {
       return { ...f2.rate, isReference: true, matchedKey: "" };
     }
   }
@@ -29610,8 +29622,8 @@ server.registerTool(
       sourceNote: args.source_note || "AI \u8054\u7F51\u6838\u5B9E\u66F4\u65B0",
       updatedBy: "ai"
     });
-    const changedModels = Object.keys(args.prices || {});
-    const removedModels = args.remove_models || [];
+    const changedModels = Object.keys(args.prices || {}).map((k2) => k2.trim().replace(/^["']+|["']+$/g, "").trim()).filter(Boolean);
+    const removedModels = (args.remove_models || []).map((k2) => k2.trim().replace(/^["']+|["']+$/g, "").trim()).filter(Boolean);
     const summaryLines = [
       `### \u5DF2\u6210\u529F\u66F4\u65B0\u672C\u5730\u6C47\u7387\u4E0E\u6A21\u578B\u62A5\u4EF7\u914D\u7F6E`,
       `- **USD \u2192 CNY \u6C47\u7387**\uFF1A${before.fxRate} \u2192 **${updated.fxRate}**`,

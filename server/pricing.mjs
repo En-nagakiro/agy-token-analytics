@@ -19,15 +19,38 @@ export const DEFAULT_PRICES = {
 };
 
 const FAMILY_FALLBACKS = [
-  { pattern: /opus/i,                     rate: { input: 15.00, cacheRead: 1.50,  output: 75.00 } },
-  { pattern: /sonnet/i,                   rate: { input: 3.00,  cacheRead: 0.30,  output: 15.00 } },
-  { pattern: /haiku/i,                    rate: { input: 0.80,  cacheRead: 0.08,  output: 4.00  } },
-  { pattern: /ultra|pro/i,                rate: { input: 1.25,  cacheRead: 0.125, output: 10.00 } },
-  { pattern: /flash|lite|mini/i,          rate: { input: 0.30,  cacheRead: 0.03,  output: 2.50  } },
-  { pattern: /gpt|o[134]/i,               rate: { input: 2.50,  cacheRead: 1.25,  output: 10.00 } },
+  { pattern: /\bopus\b/i,                     rate: { input: 4.00,  cacheRead: 0.20,  output: 20.00 } },
+  { pattern: /\bsonnet\b/i,                   rate: { input: 2.00,  cacheRead: 0.10,  output: 10.00 } },
+  { pattern: /\bhaiku\b/i,                    rate: { input: 0.80,  cacheRead: 0.08,  output: 4.00  } },
+  { pattern: /\b(ultra|pro)\b/i,              rate: { input: 2.00,  cacheRead: 0.20,  output: 12.00 } },
+  { pattern: /\b(flash|lite|mini)\b/i,        rate: { input: 0.30,  cacheRead: 0.03,  output: 2.50  } },
+  { pattern: /\b(gpt|o1|o3|o4)\b/i,           rate: { input: 2.50,  cacheRead: 0.50,  output: 10.00 } },
 ];
 
-const GENERIC_FALLBACK = { input: 1.25, cacheRead: 0.125, output: 10.00 };
+const GENERIC_FALLBACK = { input: 1.50, cacheRead: 0.15, output: 10.00 };
+
+function sanitizeModelKey(key) {
+  return String(key || '').trim().replace(/^["']+|["']+$/g, '').trim();
+}
+
+function normalizeForMatch(name) {
+  return sanitizeModelKey(name).toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function sanitizePricesMap(rawMap) {
+  const out = {};
+  for (const [rawK, v] of Object.entries(rawMap || {})) {
+    const k = sanitizeModelKey(rawK);
+    if (!k || !v || typeof v !== 'object') continue;
+    out[k] = {
+      input: Math.max(0, Number(v.input) || 0),
+      cacheRead: Math.max(0, Number(v.cacheRead) || 0),
+      output: Math.max(0, Number(v.output) || 0),
+      isReference: Boolean(v.isReference),
+    };
+  }
+  return out;
+}
 
 export const DEFAULT_CONFIG = {
   currency: 'CNY',
@@ -67,7 +90,7 @@ export function loadConfig(dataDir) {
         source: String(raw?.pricingMeta?.source || DEFAULT_CONFIG.pricingMeta.source),
         updatedBy: String(raw?.pricingMeta?.updatedBy || DEFAULT_CONFIG.pricingMeta.updatedBy),
       },
-      prices: { ...DEFAULT_PRICES, ...(raw.prices || {}) },
+      prices: sanitizePricesMap({ ...DEFAULT_PRICES, ...(raw.prices || {}) }),
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);
@@ -76,30 +99,17 @@ export function loadConfig(dataDir) {
 
 export function saveConfig(dataDir, patch) {
   const current = loadConfig(dataDir);
+  const incomingPrices = sanitizePricesMap(patch.prices || {});
   const nextPrices = patch.resetPrices
-    ? { ...DEFAULT_PRICES }
+    ? sanitizePricesMap(DEFAULT_PRICES)
     : patch.replacePrices && patch.prices
-      ? { ...patch.prices }
-      : { ...current.prices, ...(patch.prices || {}) };
+      ? incomingPrices
+      : { ...current.prices, ...incomingPrices };
 
   if (Array.isArray(patch.removeModels)) {
     for (const m of patch.removeModels) {
-      delete nextPrices[m];
+      delete nextPrices[sanitizeModelKey(m)];
     }
-  }
-
-  // Normalize price values
-  for (const [k, v] of Object.entries(nextPrices)) {
-    if (!v || typeof v !== 'object') {
-      delete nextPrices[k];
-      continue;
-    }
-    nextPrices[k] = {
-      input: Math.max(0, Number(v.input) || 0),
-      cacheRead: Math.max(0, Number(v.cacheRead) || 0),
-      output: Math.max(0, Number(v.output) || 0),
-      isReference: Boolean(v.isReference),
-    };
   }
 
   const touchedPricing =
@@ -140,7 +150,7 @@ export function saveConfig(dataDir, patch) {
 }
 
 export function resolveRate(modelName, pricesMap) {
-  const clean = String(modelName || '').trim();
+  const clean = sanitizeModelKey(modelName);
   const prices = pricesMap || DEFAULT_PRICES;
 
   // 1. Exact match
@@ -148,12 +158,15 @@ export function resolveRate(modelName, pricesMap) {
     return { ...prices[clean], matchedKey: clean };
   }
 
-  // 2. Longest prefix / substring match against user & default table
-  const lower = clean.toLowerCase();
+  // 2. Normalized longest prefix / substring match (space/hyphen/underscore agnostic)
+  const normName = normalizeForMatch(clean);
   let bestKey = '';
+  let bestLen = 0;
   for (const key of Object.keys(prices)) {
-    if (lower.includes(key.toLowerCase()) && key.length > bestKey.length) {
+    const normKey = normalizeForMatch(key);
+    if (normKey && normName.includes(normKey) && normKey.length > bestLen) {
       bestKey = key;
+      bestLen = normKey.length;
     }
   }
   if (bestKey) {
@@ -162,7 +175,7 @@ export function resolveRate(modelName, pricesMap) {
 
   // 3. Family regex fallback (always marked as reference estimate)
   for (const f of FAMILY_FALLBACKS) {
-    if (f.pattern.test(clean)) {
+    if (f.pattern.test(normName)) {
       return { ...f.rate, isReference: true, matchedKey: '' };
     }
   }
