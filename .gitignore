@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local runtime data & exports
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.data/
+exports/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# Note: dist/ is intentionally tracked so end users can install directly
+# via `git clone` or `agy plugin install` without running a build step.
