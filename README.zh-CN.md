@@ -19,7 +19,7 @@
 <br />
 
 <p align="center">
-  <img src="./docs/images/overview.png" alt="AGY Token 分析 — 总览与实时配额大盘" width="100%" />
+  <img src="./docs/images/zh/overview.png" alt="AGY Token 分析 — 总览与实时配额大盘" width="100%" />
 </p>
 
 ---
@@ -45,8 +45,8 @@
   - 若运行环境未注入本地配额服务地址，自动无感降级为 **基于本地数据库的近 5 小时滚动消耗统计**。
 - **多级子代理树状归并 & 单会话轮次下钻**
   - 递归归并嵌套子代理消耗至根主会话，展开树节点可单独下钻任意子代理；单会话面板绘制 **每轮上下文 Token 平滑曲线**，自动标注 **「上下文压缩」** 节点并统计高耗步骤/工具分布。
-- **干净明亮的高定外观与报表导出**
-  - 内置 **3 套干净明亮色盘**（冰川清透 / 晴空瓷白 / 晨光暖白）× **8 款精选字体搭配**，全量打包进单个零外链 HTML（严格通过 MCP App CSP），支持 **CSV（带 UTF-8 BOM）/ JSON** 报表导出。
+- **干净明亮的高定外观、中英一键切换与报表导出**
+  - 内置 **3 套干净明亮色盘**（冰川清透 / 晴空瓷白 / 晨光暖白）× **8 款精选字体搭配**，右上角支持 **`中 / EN` 一键双语切换**（首次打开自动跟随 Antigravity 宿主语言并持久化保存），全量打包进单个零外链 HTML（严格通过 MCP App CSP），支持 **CSV（带 UTF-8 BOM）/ JSON** 报表导出。
 
 ---
 
@@ -57,19 +57,19 @@
     <td width="50%">
       <strong>会话树状归并 &amp; 单会话轮次下钻</strong><br />
       <sub>主会话自动汇总下属子代理消耗，展开查看子代理明细、每轮上下文压缩节点与高耗工具排行，右侧栏可一键发给 AI 诊断。</sub><br /><br />
-      <img src="./docs/images/sessions-drilldown.png" alt="会话树状归并与轮次下钻" width="100%" />
+      <img src="./docs/images/zh/sessions-drilldown.png" alt="会话树状归并与轮次下钻" width="100%" />
     </td>
     <td width="50%">
       <strong>主会话 vs. 后台子代理拆解</strong><br />
       <sub>识别后台异步子代理的静默消耗比例、单实例均值、平均轮次及超 10 轮高耗角色提醒。</sub><br /><br />
-      <img src="./docs/images/subagents.png" alt="主会话与子代理分析" width="100%" />
+      <img src="./docs/images/zh/subagents.png" alt="主会话与子代理分析" width="100%" />
     </td>
   </tr>
   <tr>
     <td colspan="2">
       <strong>外观偏好、自定义单价表 &amp; AI 联网更新汇率/报价抽屉</strong><br />
       <sub>自由切换明亮色盘与英文字体、手工调整汇率与单价，或点击「一键让 AI 更新」自动同步官网最新报价。</sub><br /><br />
-      <img src="./docs/images/pricing-drawer.png" alt="外观与 AI 更新报价抽屉" width="100%" />
+      <img src="./docs/images/zh/pricing-drawer.png" alt="外观与 AI 更新报价抽屉" width="100%" />
     </td>
   </tr>
 </table>

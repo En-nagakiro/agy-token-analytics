@@ -55,6 +55,7 @@ function sanitizePricesMap(rawMap) {
 export const DEFAULT_CONFIG = {
   currency: 'CNY',
   fxRate: 7.25,
+  language: 'auto', // 'auto' | 'zh' | 'en'
   appearance: {
     palette: 'glacier', // 冰川清透 (user chosen default)
     font: 'comic',      // Comic Sans MS (user chosen default)
@@ -77,6 +78,7 @@ export function loadConfig(dataDir) {
     return {
       currency: raw.currency === 'USD' ? 'USD' : 'CNY',
       fxRate: Number(raw.fxRate) > 0 ? Number(raw.fxRate) : DEFAULT_CONFIG.fxRate,
+      language: ['zh', 'en', 'auto'].includes(raw.language) ? raw.language : 'auto',
       appearance: {
         palette: ['glacier', 'sky', 'dawn'].includes(raw?.appearance?.palette)
           ? raw.appearance.palette
@@ -136,6 +138,7 @@ export function saveConfig(dataDir, patch) {
   const next = {
     currency: patch.currency === 'USD' || patch.currency === 'CNY' ? patch.currency : current.currency,
     fxRate: Number(patch.fxRate) > 0 ? Number(patch.fxRate) : current.fxRate,
+    language: ['zh', 'en', 'auto'].includes(patch.language) ? patch.language : current.language,
     appearance: {
       palette: patch?.appearance?.palette || current.appearance.palette,
       font: patch?.appearance?.font || current.appearance.font,

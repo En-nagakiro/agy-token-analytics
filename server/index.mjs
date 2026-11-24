@@ -837,6 +837,7 @@ registerAppTool(
     inputSchema: {
       currency: z.enum(['CNY', 'USD']).optional(),
       fxRate: z.number().positive().optional(),
+      language: z.enum(['zh', 'en', 'auto']).optional(),
       appearance: z
         .object({
           palette: z.enum(['glacier', 'sky', 'dawn']).optional(),

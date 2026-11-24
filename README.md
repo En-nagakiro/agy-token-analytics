@@ -19,7 +19,7 @@
 <br />
 
 <p align="center">
-  <img src="./docs/images/overview.png" alt="AGY Token Analytics — Overview & Live Quotas" width="100%" />
+  <img src="./docs/images/en/overview.png" alt="AGY Token Analytics — Overview & Live Quotas" width="100%" />
 </p>
 
 ---
@@ -45,8 +45,8 @@ Unlike legacy sidecar panels or editor-only extensions, **AGY Token Analytics** 
   - Automatically falls back to a **local 5-hour rolling window monitor** if local RPC access is unavailable.
 - **Recursive Subagent Attribution & Turn-by-Turn Drilldown**
   - Recursively rolls up multi-level subagent token burn under root conversations, renders smooth **Turn-by-Turn context curves** with automatic **Context Compaction** markers, and ranks top token-consuming tools.
-- **Luminous Craft UI**
-  - Ships with **3 luminous palettes** (Glacier Mint / Porcelain Sky / Alabaster Dawn) and **8 curated typography pairings**, bundled into a single self-contained HTML file with zero external CDN dependencies, plus **CSV (UTF-8 BOM) / JSON** export.
+- **Luminous Craft UI & Native EN/ZH Toggle**
+  - Ships with **3 luminous palettes** (Glacier Mint / Porcelain Sky / Alabaster Dawn), **8 curated typography pairings**, and a one-click **`EN / 中` language switcher** in the top-right bar (auto-detects host locale on first launch and persists locally), bundled into a single self-contained HTML file with zero external CDN dependencies, plus **CSV (UTF-8 BOM) / JSON** export.
 
 ---
 
@@ -57,19 +57,19 @@ Unlike legacy sidecar panels or editor-only extensions, **AGY Token Analytics** 
     <td width="50%">
       <strong>Tree-Merged Sessions &amp; Turn-by-Turn Drilldown</strong><br />
       <sub>Expand nested subagents, spot context compaction points, rank heavy tools, and send bottlenecks to AI in one click.</sub><br /><br />
-      <img src="./docs/images/sessions-drilldown.png" alt="Sessions Tree & Turn-by-Turn Drilldown" width="100%" />
+      <img src="./docs/images/en/sessions-drilldown.png" alt="Sessions Tree & Turn-by-Turn Drilldown" width="100%" />
     </td>
     <td width="50%">
       <strong>Main vs. Subagents Attribution</strong><br />
       <sub>Monitor silent background subagent spend, average turns per subagent, and high-turn alerts by role.</sub><br /><br />
-      <img src="./docs/images/subagents.png" alt="Main vs Subagents Analytics" width="100%" />
+      <img src="./docs/images/en/subagents.png" alt="Main vs Subagents Analytics" width="100%" />
     </td>
   </tr>
   <tr>
     <td colspan="2">
       <strong>Appearance, Pricing Table &amp; One-Click AI Rate Sync Drawer</strong><br />
       <sub>Switch luminous palettes &amp; fonts, customize FX &amp; per-model rates, or let your AI agent fetch and sync live official pricing.</sub><br /><br />
-      <img src="./docs/images/pricing-drawer.png" alt="Appearance & AI Pricing Sync Drawer" width="100%" />
+      <img src="./docs/images/en/pricing-drawer.png" alt="Appearance & AI Pricing Sync Drawer" width="100%" />
     </td>
   </tr>
 </table>
