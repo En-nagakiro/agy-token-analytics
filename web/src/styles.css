@@ -662,6 +662,16 @@ table.clean-table tbody tr:hover {
   background: rgba(255, 255, 255, 0.7);
 }
 
+.subagent-leaf.active {
+  background: rgba(255, 255, 255, 0.88);
+  font-weight: 500;
+}
+
+.detail-loading {
+  opacity: 0.62;
+  transition: opacity 120ms ease;
+}
+
 /* Settings / Pricing Drawer */
 .drawer-backdrop {
   position: fixed;

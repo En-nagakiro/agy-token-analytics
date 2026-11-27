@@ -192,9 +192,9 @@ function applyAppearance() {
 // Server Calls (App-Only Tools)
 // ============================================================================
 
-async function fetchDashboard({ forceSync = false } = {}) {
+async function fetchDashboard({ forceSync = false, resetSessionScroll = false } = {}) {
   STATE.refreshing = true;
-  render();
+  render({ resetSessionScroll });
   try {
     const res = await app.callServerTool({
       name: 'app_get_dashboard',
@@ -227,7 +227,7 @@ async function fetchDashboard({ forceSync = false } = {}) {
   } finally {
     STATE.refreshing = false;
     STATE.loading = false;
-    render();
+    render({ resetSessionScroll });
     if (STATE.tab === 'sessions' && STATE.selectedSessionId && !STATE.sessionDetail) {
       loadSessionDetail(STATE.selectedSessionId);
     }
@@ -249,11 +249,11 @@ async function fetchQuota() {
   }
 }
 
-async function loadSessionDetail(conversationId) {
+async function loadSessionDetail(conversationId, { anchorSid = null } = {}) {
   if (!conversationId) return;
   STATE.selectedSessionId = conversationId;
   STATE.sessionLoading = true;
-  render();
+  render({ anchorSid });
   try {
     const res = await app.callServerTool({
       name: 'app_get_session_detail',
@@ -956,7 +956,7 @@ function renderSubagentsTab(dash) {
         ${
           !roles.length
             ? `<div class="well subtle" style="text-align:center; padding:32px;">${esc(t.rolesEmpty)}</div>`
-            : `<div class="num" style="font-size:12.5px; max-height:420px; overflow-y:auto; padding-right:4px;">
+            : `<div class="roles-list num" style="font-size:12.5px; max-height:420px; overflow-y:auto; padding-right:4px;">
                 ${roles
                   .map(
                     (r, idx) => `
@@ -1023,7 +1023,7 @@ function renderSessionsTab(dash) {
                                 ${visibleChildren
                                   .map(
                                     (ch) => `
-                                  <div class="subagent-leaf num" data-subid="${esc(ch.id)}">
+                                  <div class="subagent-leaf num ${STATE.selectedSessionId === ch.id ? 'active' : ''}" data-subid="${esc(ch.id)}">
                                     <span class="en-font muted" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                       ${esc(ch.role)} <span class="subtle">· ${esc(ch.primary_model)} · ${ch.turns}T</span>
                                     </span>
@@ -1046,9 +1046,9 @@ function renderSessionsTab(dash) {
         </div>
       </div>
 
-      <div class="card" style="display:flex; flex-direction:column; gap:16px;">
+      <div class="card ${STATE.sessionLoading && d ? 'detail-loading' : ''}" style="display:flex; flex-direction:column; gap:16px;">
         ${
-          STATE.sessionLoading
+          STATE.sessionLoading && !d
             ? `<div class="loading-center"><div class="spinner"></div><div>${esc(t.sessionLoading)}</div></div>`
             : !d
               ? `<div class="loading-center subtle">${esc(t.sessionPickHint)}</div>`
@@ -1235,11 +1235,38 @@ function renderDrawer() {
 // Root Render & Event Wiring
 // ============================================================================
 
-function render() {
+function findSessionRow(container, sid) {
+  if (!container || !sid) return null;
+  for (const el of container.querySelectorAll('.session-row')) {
+    if (el.dataset.sid === sid) return el;
+  }
+  return null;
+}
+
+function render(opts = {}) {
   const root = document.getElementById('app');
   if (!root) return;
   const t = T();
   const lang = getLang();
+
+  const prevWinX = window.scrollX;
+  const prevWinY = window.scrollY;
+  const prevSessionList = root.querySelector('.session-list');
+  const prevSessionTop = prevSessionList ? prevSessionList.scrollTop : null;
+  const prevDrawer = root.querySelector('#drawer-panel');
+  const prevDrawerTop = prevDrawer ? prevDrawer.scrollTop : null;
+  const prevRoles = root.querySelector('.roles-list');
+  const prevRolesTop = prevRoles ? prevRoles.scrollTop : null;
+  const prevTabs = root.querySelector('.tabs');
+  const prevTabsLeft = prevTabs ? prevTabs.scrollLeft : null;
+
+  let anchorRelTop = null;
+  if (opts.anchorSid && prevSessionList) {
+    const prevAnchor = findSessionRow(prevSessionList, opts.anchorSid);
+    if (prevAnchor) {
+      anchorRelTop = prevAnchor.getBoundingClientRect().top - prevSessionList.getBoundingClientRect().top;
+    }
+  }
 
   if (STATE.loading && !STATE.dashboard) {
     root.innerHTML = `
@@ -1351,6 +1378,34 @@ function render() {
   `;
 
   bindEvents(dash);
+
+  const nextTabs = root.querySelector('.tabs');
+  if (nextTabs && prevTabsLeft != null) nextTabs.scrollLeft = prevTabsLeft;
+
+  const nextDrawer = root.querySelector('#drawer-panel');
+  if (nextDrawer && prevDrawerTop != null) nextDrawer.scrollTop = prevDrawerTop;
+
+  const nextRoles = root.querySelector('.roles-list');
+  if (nextRoles && prevRolesTop != null) nextRoles.scrollTop = prevRolesTop;
+
+  const nextSessionList = root.querySelector('.session-list');
+  if (nextSessionList && prevSessionTop != null && !opts.resetSessionScroll) {
+    nextSessionList.scrollTop = prevSessionTop;
+    if (opts.anchorSid && anchorRelTop != null) {
+      const nextAnchor = findSessionRow(nextSessionList, opts.anchorSid);
+      if (nextAnchor) {
+        const nextRelTop = nextAnchor.getBoundingClientRect().top - nextSessionList.getBoundingClientRect().top;
+        const delta = nextRelTop - anchorRelTop;
+        if (Math.abs(delta) > 0.5) {
+          nextSessionList.scrollTop += delta;
+        }
+      }
+    }
+  }
+
+  if (prevWinX !== window.scrollX || prevWinY !== window.scrollY) {
+    window.scrollTo(prevWinX, prevWinY);
+  }
 }
 
 function bindEvents(dash) {
@@ -1361,7 +1416,7 @@ function bindEvents(dash) {
       const r = btn.dataset.range;
       if (r && r !== STATE.range) {
         STATE.range = r;
-        fetchDashboard({ forceSync: false });
+        fetchDashboard({ forceSync: false, resetSessionScroll: true });
       }
     });
   });
@@ -1424,11 +1479,11 @@ function bindEvents(dash) {
 
   document.getElementById('clear-proj')?.addEventListener('click', () => {
     STATE.projectFilter = '';
-    fetchDashboard({ forceSync: false });
+    fetchDashboard({ forceSync: false, resetSessionScroll: true });
   });
   document.getElementById('clear-model')?.addEventListener('click', () => {
     STATE.modelFilter = '';
-    fetchDashboard({ forceSync: false });
+    fetchDashboard({ forceSync: false, resetSessionScroll: true });
   });
 
   document.querySelectorAll('.chart-mode-btn').forEach((b) => {
@@ -1507,16 +1562,21 @@ function bindEvents(dash) {
 
   const searchEl = document.getElementById('session-search');
   if (searchEl) {
-    searchEl.addEventListener('input', (e) => {
+    const applySearch = (e) => {
       STATE.searchQuery = e.target.value;
       const pos = e.target.selectionStart;
-      render();
+      render({ resetSessionScroll: true });
       const el2 = document.getElementById('session-search');
       if (el2) {
-        el2.focus();
-        el2.setSelectionRange(pos, pos);
+        el2.focus({ preventScroll: true });
+        if (pos != null) el2.setSelectionRange(pos, pos);
       }
+    };
+    searchEl.addEventListener('input', (e) => {
+      if (e.isComposing) return;
+      applySearch(e);
     });
+    searchEl.addEventListener('compositionend', applySearch);
   }
 
   document.querySelectorAll('.session-row').forEach((row) => {
@@ -1524,7 +1584,7 @@ function bindEvents(dash) {
       const sid = row.dataset.sid;
       if (!sid) return;
       STATE.expandedSessionId = STATE.expandedSessionId === sid ? null : sid;
-      loadSessionDetail(sid);
+      loadSessionDetail(sid, { anchorSid: sid });
     });
   });
 
@@ -1532,15 +1592,17 @@ function bindEvents(dash) {
     leaf.addEventListener('click', (e) => {
       e.stopPropagation();
       const subId = leaf.dataset.subid;
-      if (subId) loadSessionDetail(subId);
+      const parentSid = leaf.closest('.session-row')?.dataset.sid || null;
+      if (subId) loadSessionDetail(subId, { anchorSid: parentSid });
     });
   });
 
   document.querySelectorAll('.expand-children-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      STATE.showAllChildrenFor.add(btn.dataset.parent);
-      render();
+      const parentSid = btn.dataset.parent;
+      STATE.showAllChildrenFor.add(parentSid);
+      render({ anchorSid: parentSid });
     });
   });
 
