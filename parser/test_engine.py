@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import sys
 import tempfile
 
@@ -75,7 +77,198 @@ def test_real_local_data():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _pb_varint(n: int) -> bytes:
+    out = bytearray()
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        if n:
+            out.append(b | 0x80)
+        else:
+            out.append(b)
+            return bytes(out)
+
+
+def _pb_field_int(fn: int, val: int) -> bytes:
+    return _pb_varint((fn << 3) | 0) + _pb_varint(val)
+
+
+def _pb_field_bytes(fn: int, data: bytes) -> bytes:
+    return _pb_varint((fn << 3) | 2) + _pb_varint(len(data)) + data
+
+
+def _make_step_payload(
+    step_type: int,
+    status: int,
+    ts: int,
+    tool_name: str = "",
+    tool_args: bytes = b"",
+    extra_bytes: bytes = b"",
+) -> bytes:
+    md = _pb_field_bytes(1, _pb_field_int(1, ts))
+    if tool_name:
+        tc = _pb_field_bytes(2, tool_name.encode("utf-8"))
+        if tool_args:
+            tc += _pb_field_bytes(3, tool_args)
+        md += _pb_field_bytes(4, tc)
+    pb = _pb_field_int(1, step_type) + _pb_field_int(4, status) + _pb_field_bytes(5, md)
+    if extra_bytes:
+        pb += _pb_field_bytes(99, extra_bytes)
+    return pb
+
+
+def _make_gen_blob(
+    covered: list[int],
+    in_tok: int,
+    ca_tok: int,
+    th_tok: int,
+    resp_tok: int,
+    model_name: str = "Gemini 4 Neon",
+) -> bytes:
+    usage = (
+        _pb_field_int(2, in_tok)
+        + _pb_field_int(3, th_tok + resp_tok)
+        + _pb_field_int(5, ca_tok)
+        + _pb_field_int(9, th_tok)
+        + _pb_field_int(10, resp_tok)
+    )
+    chat = (
+        _pb_field_bytes(4, usage)
+        + _pb_field_bytes(19, b"gemini-4-neon")
+        + _pb_field_bytes(21, model_name.encode("utf-8"))
+    )
+    blob = _pb_field_bytes(1, chat)
+    for s in covered:
+        blob += _pb_field_int(2, s)
+    return blob
+
+
+def test_checkpoints_images_and_btw_branches():
+    tmp_root = Path(tempfile.mkdtemp(prefix="agy_token_synthetic_"))
+    try:
+        agy_dir = tmp_root / "agy"
+        conv_dir = agy_dir / "conversations"
+        data_dir = tmp_root / "data"
+        conv_dir.mkdir(parents=True)
+
+        ts_base = 1_795_000_000
+        # Summary DB with root session + /btw child entry in conversation_parents
+        sconn = sqlite3.connect(str(agy_dir / "conversation_summaries.db"))
+        sconn.execute(
+            """
+            CREATE TABLE conversation_summaries (
+                conversation_id TEXT PRIMARY KEY,
+                title TEXT,
+                step_count INTEGER,
+                last_modified_time TEXT,
+                workspace_uris TEXT,
+                agent_name TEXT,
+                parent_conversation_id TEXT,
+                nesting_depth INTEGER
+            )
+            """
+        )
+        sconn.execute(
+            "CREATE TABLE conversation_parents (conversation_id TEXT PRIMARY KEY, parent_id TEXT)"
+        )
+        sconn.execute(
+            "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "root-conv",
+                "Root Session",
+                10,
+                "2026-11-27 10:00:00+00:00",
+                '["file:///a%3A/WorkSpace/demo"]',
+                "",
+                "",
+                0,
+            ),
+        )
+        sconn.execute(
+            "INSERT INTO conversation_parents VALUES (?, ?)",
+            ("btw-conv", "root-conv"),
+        )
+        sconn.commit()
+        sconn.close()
+
+        # Root DB: includes archived checkpoint (status=5), active checkpoint (status=3),
+        # image read_file (~160KB payload), and text read_file (~8KB payload)
+        rconn = sqlite3.connect(str(conv_dir / "root-conv.db"))
+        rconn.execute(
+            "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, metadata BLOB, step_payload BLOB)"
+        )
+        rconn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)")
+        img_args = json.dumps({"Path": "A:/tmp/screenshot.jpg"}).encode("utf-8")
+        txt_args = json.dumps({"Path": "A:/src/app.py"}).encode("utf-8")
+        root_steps = [
+            (0, 14, 3, b"", _make_step_payload(14, 3, ts_base)),
+            (1, 15, 3, b"", _make_step_payload(15, 3, ts_base + 1)),
+            (2, 132, 3, b"", _make_step_payload(132, 3, ts_base + 2, "read_file", img_args, b"X" * 160_000)),
+            (3, 23, 5, b"", _make_step_payload(23, 5, ts_base + 3)),  # archived compaction
+            (4, 15, 3, b"", _make_step_payload(15, 3, ts_base + 4)),
+            (5, 132, 3, b"", _make_step_payload(132, 3, ts_base + 5, "read_file", txt_args, b"Y" * 8_000)),
+            (6, 23, 3, b"", _make_step_payload(23, 3, ts_base + 6)),  # active compaction
+            (7, 15, 3, b"", _make_step_payload(15, 3, ts_base + 7)),
+        ]
+        rconn.executemany("INSERT INTO steps VALUES (?, ?, ?, ?, ?)", root_steps)
+        root_gens = [
+            (0, _make_gen_blob([1, 2], 10_000, 90_000, 100, 200)),
+            (1, _make_gen_blob([4, 5], 20_000, 0, 100, 200)),
+            (2, _make_gen_blob([7], 15_000, 0, 50, 100)),
+        ]
+        rconn.executemany("INSERT INTO gen_metadata VALUES (?, ?)", root_gens)
+        rconn.commit()
+        rconn.close()
+
+        # /btw branch DB: copies root steps 0..7 + btw marker at step 8 + net branch steps 9..11
+        bconn = sqlite3.connect(str(conv_dir / "btw-conv.db"))
+        bconn.execute(
+            "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, metadata BLOB, step_payload BLOB)"
+        )
+        bconn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)")
+        btw_steps = list(root_steps) + [
+            (8, 101, 3, b"", _pb_field_int(1, 101) + _pb_field_int(4, 3) + _pb_field_bytes(99, engine.BTW_BRANCH_MARKER)),
+            (9, 14, 3, b"", _make_step_payload(14, 3, ts_base + 100)),
+            (10, 15, 3, b"", _make_step_payload(15, 3, ts_base + 101)),
+            (11, 132, 3, b"", _make_step_payload(132, 3, ts_base + 102, "run_command", b'{"CommandLine":"echo hi"}', b"Z" * 800)),
+        ]
+        bconn.executemany("INSERT INTO steps VALUES (?, ?, ?, ?, ?)", btw_steps)
+        btw_gens = list(root_gens) + [
+            (3, _make_gen_blob([10, 11], 5_000, 40_000, 80, 120)),
+        ]
+        bconn.executemany("INSERT INTO gen_metadata VALUES (?, ?)", btw_gens)
+        bconn.commit()
+        bconn.close()
+
+        dash = engine.query_dashboard(agy_dir, data_dir, range_key="all")
+        # Root (100k + 20k + 15k + 750 out = 135,750) + /btw net (45k + 200 out = 45,200) = 180,950
+        assert dash["summary"]["total"] == 180_950, f"Double counting occurred: {dash['summary']['total']}"
+        assert dash["summary"]["main_sessions"] == 1
+        assert dash["summary"]["subagent_sessions"] == 1
+        assert len(dash["sessions"]) == 1
+        assert dash["sessions"][0]["project"] == "demo"
+        assert dash["sessions"][0]["children"][0]["role"] == "/btw"
+        assert dash["sessions"][0]["children"][0]["turns"] == 1
+
+        root_detail = engine.query_session_detail(agy_dir, data_dir, "root-conv")
+        assert root_detail["summary"]["compaction_count"] == 2, (
+            f"Expected 2 compactions (status=5 and status=3), got {root_detail['summary']['compaction_count']}"
+        )
+        rf_tool = next(t for t in root_detail["tools"] if t["tool"] == "read_file")
+        # 1 image (1400) + 1 ~8k text (~2000) should be << 10,000 (not 40,000+!)
+        assert rf_tool["tokens"] < 5_000, f"Image read_file inflated: {rf_tool}"
+
+        btw_detail = engine.query_session_detail(agy_dir, data_dir, "btw-conv")
+        assert btw_detail["summary"]["turns"] == 1
+        assert btw_detail["meta"]["project"] == "demo"
+        assert [t["tool"] for t in btw_detail["tools"] if t["tool"] != "Thinking（深度推理）"] == ["run_command"]
+        print("[PASS] Synthetic compaction, image read, and /btw deduplication tests")
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_helpers()
+    test_checkpoints_images_and_btw_branches()
     test_real_local_data()
     print("ALL PARSER TESTS PASSED")

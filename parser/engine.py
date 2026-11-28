@@ -26,7 +26,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-INDEX_SCHEMA_VERSION = 1
+INDEX_SCHEMA_VERSION = 2
 
 # Step type id -> readable name fallback when tool_call name is absent
 STEP_TYPE_NAMES: dict[int, str] = {
@@ -65,8 +65,19 @@ STEP_TYPE_NAMES: dict[int, str] = {
 
 STEP_PLANNER_RESPONSE = 15
 STEP_CHECKPOINT = 23
+STEP_SYSTEM_MESSAGE = 101
 STEP_GENERIC = 132
 STATUS_DONE = 3
+STATUS_ARCHIVED = 5
+CHECKPOINT_VALID_STATUSES = (STATUS_DONE, STATUS_ARCHIVED)
+
+BTW_BRANCH_MARKER = (
+    b"Above is the conversation history from the parent conversation; "
+    b"what follows is a side question (/btw)"
+)
+IMAGE_READ_TOOLS = ("read_file", "view_file")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
+EST_IMAGE_READ_TOKENS = 1400
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +412,23 @@ def open_index_db(data_dir: Path) -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 
+def _is_image_read_args(raw_args: bytes) -> bool:
+    """Return True if read_file/view_file JSON args point to an image asset."""
+    if not raw_args:
+        return False
+    try:
+        obj = json.loads(raw_args.decode("utf-8", errors="replace"))
+    except Exception:
+        return False
+    if not isinstance(obj, dict):
+        return False
+    for key in ("Path", "AbsolutePath", "path", "file_path"):
+        val = obj.get(key)
+        if isinstance(val, str) and val.strip().lower().endswith(IMAGE_EXTENSIONS):
+            return True
+    return False
+
+
 def parse_single_conversation(
     db_path: Path, fallback_ts: int
 ) -> tuple[list[tuple], list[tuple], int, int]:
@@ -422,6 +450,7 @@ def parse_single_conversation(
             planner_fallback_rows: list[tuple] = []
             tool_counts: dict[str, int] = defaultdict(int)
             tool_tokens: dict[str, int] = defaultdict(int)
+            branch_cutoff_step = -1
 
             if "steps" in tables:
                 for idx, stype, status, md_blob, payload_blob in conn.execute(
@@ -432,12 +461,28 @@ def parse_single_conversation(
                     real_status = pb.int(4) if pb.has(4) else status
                     md = pb.msg(5) or Msg(md_blob)
 
+                    # /btw branch DBs embed a copy of the parent's history up to the
+                    # branch marker step; discard inherited prefix so only net branch
+                    # steps and generations are counted.
+                    if (
+                        real_type == STEP_SYSTEM_MESSAGE
+                        and payload_blob
+                        and BTW_BRANCH_MARKER in payload_blob
+                    ):
+                        branch_cutoff_step = idx
+                        step_ts.clear()
+                        checkpoint_steps.clear()
+                        planner_fallback_rows.clear()
+                        tool_counts.clear()
+                        tool_tokens.clear()
+                        continue
+
                     ts_msg = md.msg(1)
                     ts_val = ts_msg.int(1) if ts_msg is not None else 0
                     if ts_val > 1_000_000_000:
                         step_ts[idx] = ts_val
 
-                    if real_type == STEP_CHECKPOINT and real_status == STATUS_DONE:
+                    if real_type == STEP_CHECKPOINT and real_status in CHECKPOINT_VALID_STATUSES:
                         checkpoint_steps.add(idx)
 
                     # Extract tool name and estimated token footprint
@@ -452,10 +497,14 @@ def parse_single_conversation(
                         if out_tok > 0:
                             tool_tokens[tname] += out_tok
                         else:
-                            # Fallback estimate from payload / args size
-                            approx = len(payload_blob or b"") // 4
-                            if tc is not None:
-                                approx = max(approx, len(tc.bytes(3)) // 4)
+                            raw_args = tc.bytes(3) if tc is not None else b""
+                            if tname in IMAGE_READ_TOOLS and _is_image_read_args(raw_args):
+                                approx = EST_IMAGE_READ_TOKENS
+                            else:
+                                # Fallback estimate from payload / args size
+                                approx = len(payload_blob or b"") // 4
+                                if raw_args:
+                                    approx = max(approx, len(raw_args) // 4)
                             tool_tokens[tname] += max(0, approx)
 
                     mu = md.msg(9)
@@ -509,6 +558,13 @@ def parse_single_conversation(
                     gen_ms = decode_duration_ms(chat.msg(12))
 
                     covered = g.ints(2)
+                    if branch_cutoff_step >= 0:
+                        if covered:
+                            if max(covered) <= branch_cutoff_step:
+                                continue
+                        elif prev_last_step <= branch_cutoff_step:
+                            continue
+
                     ts_val = 0
                     for s_idx in covered:
                         if s_idx in step_ts:
@@ -671,6 +727,28 @@ def sync_summaries_metadata(agy_dir: Path, idx_conn: sqlite3.Connection) -> dict
                 seen.add(p)
                 cur = p
                 depth += 1
+
+        # Include /btw side-branch conversations recorded only in conversation_parents
+        conv_dir = agy_dir / "conversations"
+        for cid, pid in parent_map.items():
+            if cid in raw_rows:
+                continue
+            if not (conv_dir / f"{cid}.db").exists():
+                continue
+            root_id, calc_depth = find_root(cid)
+            root_info = raw_rows.get(root_id)
+            root_title = root_info["title"] if root_info else ""
+            raw_rows[cid] = {
+                "cid": cid,
+                "title": f"{root_title} (/btw)" if root_title else f"会话 {cid[:8]} (/btw)",
+                "workspace": root_info["workspace"] if root_info else "",
+                "project_name": root_info["project_name"] if root_info else "无工作区（临时对话）",
+                "parent_id": pid,
+                "nesting_depth": max(1, calc_depth),
+                "agent_name": "/btw",
+                "step_count": 0,
+                "last_modified_ts": 0,
+            }
 
         meta_batch: list[tuple] = []
         for cid, info in raw_rows.items():
